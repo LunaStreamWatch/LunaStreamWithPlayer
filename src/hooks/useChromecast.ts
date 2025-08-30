@@ -1,5 +1,5 @@
 import React from 'react';
-import { initializeChromecast, isChromecastAvailable } from '../utils/subtitleUtils';
+import { isChromecastAvailable, initializeChromecast } from '../utils/subtitleUtils';
 
 export function useChromecast() {
   const [isAvailable, setIsAvailable] = React.useState(false);

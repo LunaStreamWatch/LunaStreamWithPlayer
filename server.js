@@ -19,9 +19,14 @@ import fetch from 'node-fetch';
 const OPEN_SUBTITLES_API_URL = "https://api.opensubtitles.com/api/v1/subtitles";
 const OPEN_SUBTITLES_API_KEY = process.env.OPEN_SUBTITLES_API_KEY || "ubzr1nyb4zG6xeYx3RorbzXaHXm1k4El";
 
-async function fetchSubtitles(tmdbId, type = "movie") {
+async function fetchSubtitles(tmdbId, type = "movie", season = null, episode = null) {
   try {
-    const res = await fetch(`${OPEN_SUBTITLES_API_URL}?tmdb_id=${tmdbId}&type=${type}`, {
+    let url = `${OPEN_SUBTITLES_API_URL}?tmdb_id=${tmdbId}&type=${type}`;
+    if (type === 'episode' && season && episode) {
+      url += `&season_number=${season}&episode_number=${episode}`;
+    }
+    
+    const res = await fetch(url, {
       headers: {
         "Api-Key": OPEN_SUBTITLES_API_KEY,
         "Content-Type": "application/json",
@@ -174,8 +179,8 @@ async function registerRoutes() {
     }
 
     try {
-      // Call OpenSubtitles API with type=tv and pass season/episode
-      const subtitles = await fetchSubtitles(Number(tmdbId), 'tv', Number(season), Number(episode));
+      // Call OpenSubtitles API with type=episode for TV episodes
+      const subtitles = await fetchSubtitles(Number(tmdbId), 'episode', Number(season), Number(episode));
       return reply.send(subtitles);
     } catch (err) {
       return reply.code(500).send({ error: 'Failed to fetch subtitles', details: err.message });

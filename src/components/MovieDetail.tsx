@@ -14,6 +14,7 @@ import { useLanguage } from "./LanguageContext"
 import { translations } from "../data/i18n"
 import Loading from "./Loading"
 import HybridMovieHeader from "./HybridMovieHeader"
+import { UniversalVideoPlayer } from "./player/UniversalVideoPlayer"
 
 const DISCORD_WEBHOOK_URL =
   "https://discord.com/api/webhooks/1407868278398783579/zSYE2bkCULW7dIMllQ8RMODrPgFpk_V4cQFdQ55RK-BkSya-evn_QUxTRnOPmAz9Hreg"
@@ -221,25 +222,13 @@ const MovieDetail: React.FC = () => {
 
   if (isPlaying) {
     return (
-      <div className="fixed inset-0 bg-black z-50">
-        <div className="absolute top-6 right-6 z-10">
-          <button
-            onClick={handleClosePlayer}
-            className="text-white hover:text-gray-300"
-            aria-label={t.close_player || "Close Player"}
-          >
-            <X className="w-8 h-8" />
-          </button>
-        </div>
-        <iframe
-          src={getPlayerUrl("vidplus", { tmdbId: id!, mediaType: "movie" })}
-          className="fixed top-0 left-0 w-full h-full border-0"
-          allowFullScreen
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          title={movie.title}
-          referrerPolicy="no-referrer"
-        />
-      </div>
+      <UniversalVideoPlayer
+        tmdbId={id!}
+        mediaType="movie"
+        title={movie.title}
+        poster={tmdb.getImageUrl(movie.poster_path)}
+        onClose={handleClosePlayer}
+      />
     )
   }
 

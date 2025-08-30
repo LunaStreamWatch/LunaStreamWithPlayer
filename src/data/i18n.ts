@@ -12,6 +12,7 @@ export const translations = {
     // Navigation
     nav_home: 'Home',
     nav_search: 'Search',
+    nav_anime: 'Anime',
     nav_discover: 'Discover',
     nav_vault: 'Vault',
     nav_donate: 'Donate',
@@ -295,6 +296,7 @@ export const translations = {
     // Navigation
     nav_home: 'Hjem',
     nav_search: 'Søg',
+    nav_anime: 'Anime',
     nav_discover: 'Udforsk',
     nav_vault: 'Arkiv',
     nav_donate: 'Doner',

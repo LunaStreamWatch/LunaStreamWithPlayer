@@ -1,6 +1,6 @@
 import React from 'react';
 import { Subtitles, Check } from 'lucide-react';
-import { SubtitleTrack } from '../types/player';
+import { SubtitleTrack } from '../../services/subtitles';
 
 interface SubtitleMenuProps {
   isOpen: boolean;

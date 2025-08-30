@@ -1,16 +1,3 @@
-export interface SubtitleTrack {
-  id: string;
-  language: string;
-  country: string;
-  url: string;
-}
-
-export interface SubtitleCue {
-  start: number;
-  end: number;
-  text: string;
-}
-
 export interface PlayerSettings {
   playbackSpeed: number;
   subtitleSettings: {
@@ -25,7 +12,6 @@ export interface PlayerSettings {
 
 export interface VideoPlayerProps {
   src: string;
-  subtitleTracks?: SubtitleTrack[];
   poster?: string;
   autoPlay?: boolean;
   className?: string;

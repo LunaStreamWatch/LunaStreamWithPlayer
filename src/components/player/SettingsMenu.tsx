@@ -1,6 +1,6 @@
 import React from 'react';
 import { Settings, Check } from 'lucide-react';
-import { PlayerSettings } from '../types/player';
+import { PlayerSettings } from '../../types/player';
 
 interface SettingsMenuProps {
   isOpen: boolean;

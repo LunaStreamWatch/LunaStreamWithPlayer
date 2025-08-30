@@ -10,6 +10,7 @@ import { useLanguage } from './LanguageContext';
 import { translations } from '../data/i18n';
 import Loading from './Loading';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { UniversalVideoPlayer } from './player/UniversalVideoPlayer';
 
 interface Episode {
   id: number;
@@ -153,33 +154,15 @@ const SeasonDetail: React.FC = () => {
   if (isPlaying && currentEpisode) {
     return (
       <div className="fixed inset-0 bg-black z-50">
-        {/* Close button */}
-        <div className="absolute top-6 right-6 z-10">
-          <button
-            onClick={handleClosePlayer}
-            className="text-white hover:text-gray-300 transition-colors"
-            aria-label={translations[language].close_player || "Close Player"}
-          >
-            <X className="w-8 h-8" />
-          </button>
-        </div>
-
-
-        {/* Player iframe */}
-        <iframe
-          src={getPlayerUrl("vidplus", { 
-            tmdbId: id!, 
-            mediaType: "tv", 
-            seasonNumber: currentEpisode.season_number, 
-            episodeNumber: currentEpisode.episode_number 
-          })}
-          className="fixed top-0 left-0 w-full h-full border-0"
-          allowFullScreen
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          title={`${show.name} - S${currentEpisode.season_number}E${currentEpisode.episode_number}`}
-          referrerPolicy="no-referrer"
-        />
-      </div>
+      <UniversalVideoPlayer
+        tmdbId={id!}
+        mediaType="tv"
+        seasonNumber={currentEpisode.season_number}
+        episodeNumber={currentEpisode.episode_number}
+        title={`${show.name} - S${currentEpisode.season_number}E${currentEpisode.episode_number}`}
+        poster={tmdb.getImageUrl(show.poster_path)}
+        onClose={handleClosePlayer}
+      />
     );
   }
 

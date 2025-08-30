@@ -1,5 +1,6 @@
 import React from 'react';
-import { SubtitleCue, PlayerSettings } from '../types/player';
+import { SubtitleCue } from '../../services/subtitles';
+import { PlayerSettings } from '../../types/player';
 
 interface SubtitleOverlayProps {
   cues: SubtitleCue[];

@@ -11,6 +11,7 @@ import { translations } from "../data/i18n"
 import Loading from "./Loading"
 import { useIsMobile } from "../hooks/useIsMobile"
 import HybridAnimeTVHeader from "./HybridAnimeTVHeader"
+import { UniversalVideoPlayer } from "./player/UniversalVideoPlayer"
 
 // ------------------ DISCORD WEBHOOK URL & FUNCTION ------------------
 const DISCORD_WEBHOOK_URL =
@@ -212,47 +213,16 @@ const AnimeTVDetail: React.FC = () => {
   if (isPlaying) {
     return (
       <div className="fixed inset-0 bg-black z-50">
-        <div className="absolute top-6 right-6 z-10">
-          <button
-            onClick={handleClosePlayer}
-            className="text-white hover:text-gray-300 transition-colors"
-            aria-label="Close Player"
-          >
-            <X className="w-8 h-8" />
-          </button>
-        </div>
-
-        {/* Language selector (only shows on hover) */}
-        <div className="absolute top-6 left-6 z-10 group">
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/70 backdrop-blur-sm rounded-lg shadow-xl p-2 w-28 text-center text-white">
-            <div className="text-xs text-gray-300 mb-2">Audio</div>
-            <div className="flex flex-col space-y-1">
-              <button
-                onClick={() => setIsDub(false)}
-                className={`px-3 py-1 rounded-md text-sm ${!isDub ? 'bg-white/20' : 'hover:bg-white/10'}`}
-              >
-                Sub
-              </button>
-              <button
-                onClick={() => setIsDub(true)}
-                className={`px-3 py-1 rounded-md text-sm ${isDub ? 'bg-white/20' : 'hover:bg-white/10'}`}
-              >
-                Dub
-              </button>
-            </div>
-          </div>
-        </div>
-
-
-        <iframe
-          src={`https://vidnest.fun/anime/${currentAnime.id}/${currentEpisode}/${isDub ? 'dub' : 'sub'}`}
-          className="fixed top-0 left-0 w-full h-full border-0"
-          allowFullScreen
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          title={`${anilist.getDisplayTitle(currentAnime)} - Episode ${currentEpisode}`}
-          referrerPolicy="no-referrer"
-        />
-      </div>
+      <UniversalVideoPlayer
+        anilistId={currentAnime.id.toString()}
+        mediaType="anime"
+        episodeNumber={currentEpisode}
+        title={`${anilist.getDisplayTitle(currentAnime)} - Episode ${currentEpisode}`}
+        poster={currentAnime.coverImage.large}
+        onClose={handleClosePlayer}
+        isDub={isDub}
+        onDubChange={setIsDub}
+      />
     )
   }
 
