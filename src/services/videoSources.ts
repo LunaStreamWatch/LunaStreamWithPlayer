@@ -1,4 +1,6 @@
-// Video source management with multiple providers
+// Enhanced video source management with p-stream integration
+import { pstreamService, PStreamSource } from './pstream';
+
 export interface VideoSource {
   id: string;
   name: string;
@@ -6,6 +8,11 @@ export interface VideoSource {
   url: string;
   type: 'embed' | 'direct';
   provider: string;
+  subtitles?: Array<{
+    language: string;
+    url: string;
+    label: string;
+  }>;
 }
 
 export interface SourceProvider {
@@ -103,9 +110,17 @@ class VideoSourceService {
     mediaType: 'movie' | 'tv' | 'anime';
     isDub?: boolean;
   }): Promise<VideoSource[]> {
-    const sources: VideoSource[] = [];
+    let sources: VideoSource[] = [];
     
-    // Filter providers based on media type
+    // Try p-stream first for better quality sources
+    try {
+      const pstreamSources = await this.getPStreamSources(params);
+      sources.push(...pstreamSources);
+    } catch (error) {
+      console.warn('P-Stream failed, falling back to legacy providers:', error);
+    }
+    
+    // Add legacy providers as fallback
     const availableProviders = sourceProviders.filter(provider => {
       if (params.mediaType === 'anime') {
         return provider.id === 'vidplus' || provider.id === 'vidnest';
@@ -116,14 +131,19 @@ class VideoSourceService {
     for (const provider of availableProviders) {
       try {
         const url = provider.generateUrl(params);
-        sources.push({
+        const legacySource: VideoSource = {
           id: `${provider.id}-${Date.now()}`,
           name: provider.name,
           quality: 'Auto',
           url,
           type: 'embed',
           provider: provider.id
-        });
+        };
+        
+        // Only add if we don't already have this provider from p-stream
+        if (!sources.some(s => s.provider === provider.id)) {
+          sources.push(legacySource);
+        }
       } catch (error) {
         console.warn(`Provider ${provider.name} failed:`, error);
       }
@@ -134,6 +154,50 @@ class VideoSourceService {
       const providerB = sourceProviders.find(p => p.id === b.provider);
       return (providerA?.priority || 999) - (providerB?.priority || 999);
     });
+  }
+
+  private async getPStreamSources(params: {
+    tmdbId?: string;
+    anilistId?: string;
+    seasonNumber?: number;
+    episodeNumber?: number;
+    mediaType: 'movie' | 'tv' | 'anime';
+    isDub?: boolean;
+  }): Promise<VideoSource[]> {
+    let pstreamResponse;
+    
+    if (params.mediaType === 'movie' && params.tmdbId) {
+      pstreamResponse = await pstreamService.getMovieSources(params.tmdbId);
+    } else if (params.mediaType === 'tv' && params.tmdbId && params.seasonNumber && params.episodeNumber) {
+      pstreamResponse = await pstreamService.getTVSources(params.tmdbId, params.seasonNumber, params.episodeNumber);
+    } else if (params.mediaType === 'anime' && params.anilistId && params.episodeNumber) {
+      pstreamResponse = await pstreamService.getAnimeSources(params.anilistId, params.episodeNumber, params.isDub);
+    } else {
+      return [];
+    }
+
+    if (!pstreamResponse.success) {
+      // Try fallback sources from p-stream service
+      const fallbackSources = pstreamService.getFallbackSources(params);
+      return fallbackSources.map(source => ({
+        id: source.id,
+        name: source.name,
+        quality: source.quality,
+        url: source.url,
+        type: source.type,
+        provider: source.provider
+      }));
+    }
+
+    return pstreamResponse.sources.map((source: PStreamSource) => ({
+      id: source.id,
+      name: source.name,
+      quality: source.quality,
+      url: source.url,
+      type: source.type,
+      provider: source.provider,
+      subtitles: source.subtitles
+    }));
   }
 
   getDefaultSource(sources: VideoSource[]): VideoSource | null {

@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, Subtitles, RotateCcw, RotateCw, Monitor } from 'lucide-react';
+import { X, Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, Subtitles, RotateCcw, RotateCw, Monitor, RefreshCw, AlertCircle, Wifi, WifiOff } from 'lucide-react';
 import { subtitleService, SubtitleTrack, SubtitleCue } from '../../services/subtitles';
 import { videoSourceService, VideoSource } from '../../services/videoSources';
+import { pstreamService } from '../../services/pstream';
+import { SourceSelector } from './SourceSelector';
+import { SubtitleMenu } from './SubtitleMenu';
+import { SettingsMenu } from './SettingsMenu';
+import { PlayerSettings } from '../../types/player';
 
 interface UniversalVideoPlayerProps {
   tmdbId?: string;
@@ -39,6 +44,19 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
   const [showSourceMenu, setShowSourceMenu] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [sourceError, setSourceError] = useState<string | null>(null);
+  const [playerSettings, setPlayerSettings] = useState<PlayerSettings>({
+    playbackSpeed: 1,
+    subtitleSettings: {
+      fontSize: 16,
+      color: '#ffffff',
+      delay: 0,
+      backgroundColor: '#000000',
+      backgroundOpacity: 0.8
+    },
+    theme: 'dark'
+  });
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
@@ -48,9 +66,10 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     const loadContent = async () => {
       setLoading(true);
       setError(null);
+      setSourceError(null);
 
       try {
-        // Get video sources
+        // Get video sources with p-stream integration
         const videoSources = await videoSourceService.getSources({
           tmdbId,
           anilistId,
@@ -61,11 +80,36 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
         });
 
         if (videoSources.length === 0) {
-          throw new Error('No video sources available');
+          setSourceError('No video sources available from any provider');
+          // Try direct p-stream fallback
+          const fallbackSources = pstreamService.getFallbackSources({
+            tmdbId,
+            anilistId,
+            seasonNumber,
+            episodeNumber,
+            mediaType,
+            isDub
+          });
+          
+          if (fallbackSources.length > 0) {
+            const convertedSources = fallbackSources.map(source => ({
+              id: source.id,
+              name: source.name,
+              quality: source.quality,
+              url: source.url,
+              type: source.type as 'embed' | 'direct',
+              provider: source.provider
+            }));
+            setSources(convertedSources);
+            setCurrentSource(convertedSources[0]);
+          } else {
+            throw new Error('No video sources available from any provider');
+          }
+        } else {
+          setSources(videoSources);
+          setCurrentSource(videoSources[0]);
         }
 
-        setSources(videoSources);
-        setCurrentSource(videoSources[0]);
 
         // Get subtitles for non-anime content
         if (mediaType !== 'anime' && tmdbId) {
@@ -76,6 +120,17 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
             episodeNumber
           );
           setSubtitleTracks(subs);
+        } else if (mediaType === 'anime' && !isDub) {
+          // For anime sub, we might want to show subtitle options
+          setSubtitleTracks([
+            {
+              id: 'anime-en',
+              language: 'English',
+              country: 'US',
+              url: '',
+              provider: 'embedded'
+            }
+          ]);
         }
       } catch (err) {
         console.error('Failed to load content:', err);
@@ -86,6 +141,7 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     };
 
     loadContent();
+    setRetryCount(0);
   }, [tmdbId, anilistId, mediaType, seasonNumber, episodeNumber, isDub]);
 
   // Load subtitle content when track is selected
@@ -134,6 +190,7 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
   const handleSourceChange = (source: VideoSource) => {
     setCurrentSource(source);
     setShowSourceMenu(false);
+    setSourceError(null);
   };
 
   const handleSubtitleChange = (trackId: string | null) => {
@@ -141,6 +198,40 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     setShowSubtitleMenu(false);
   };
 
+  const handleRetryLoad = () => {
+    setRetryCount(prev => prev + 1);
+    setError(null);
+    setSourceError(null);
+    
+    // Trigger reload by updating a dependency
+    const loadContent = async () => {
+      setLoading(true);
+      try {
+        const videoSources = await videoSourceService.getSources({
+          tmdbId,
+          anilistId,
+          seasonNumber,
+          episodeNumber,
+          mediaType,
+          isDub
+        });
+        
+        if (videoSources.length > 0) {
+          setSources(videoSources);
+          setCurrentSource(videoSources[0]);
+          setError(null);
+        } else {
+          throw new Error('No sources available after retry');
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Retry failed');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadContent();
+  };
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -176,16 +267,29 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
     return (
       <div className="fixed inset-0 bg-black z-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center mb-4">
-            <X className="w-8 h-8 text-white" />
+          <div className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center mb-4 animate-pulse">
+            <AlertCircle className="w-8 h-8 text-white" />
           </div>
           <p className="text-white text-lg mb-4">{error}</p>
-          <button
-            onClick={onClose}
-            className="bg-gradient-to-r from-pink-500 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:from-pink-600 hover:to-purple-700 transition-all duration-200"
-          >
-            Close Player
-          </button>
+          {sourceError && (
+            <p className="text-red-400 text-sm mb-4">Source Error: {sourceError}</p>
+          )}
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={handleRetryLoad}
+              disabled={loading}
+              className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:from-blue-600 hover:to-indigo-700 transition-all duration-200 disabled:opacity-50 flex items-center space-x-2"
+            >
+              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+              <span>Retry ({retryCount}/3)</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="bg-gradient-to-r from-pink-500 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:from-pink-600 hover:to-purple-700 transition-all duration-200"
+            >
+              Close Player
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -225,94 +329,24 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
           <div className="flex items-center justify-between">
             {/* Left Controls */}
             <div className="flex items-center space-x-4">
-              {/* Source Selector */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowSourceMenu(!showSourceMenu)}
-                  className="text-white hover:text-pink-400 transition-colors p-2 bg-black/50 rounded-lg"
-                  aria-label="Video Sources"
-                >
-                  <Monitor className="w-5 h-5" />
-                </button>
-                
-                {showSourceMenu && (
-                  <div className="absolute bottom-full left-0 mb-2 bg-black/90 backdrop-blur-sm rounded-lg border border-white/20 min-w-[200px] overflow-hidden">
-                    <div className="p-2">
-                      <div className="text-white text-sm font-medium mb-2 px-2">Video Sources</div>
-                      {sources.map((source) => (
-                        <button
-                          key={source.id}
-                          onClick={() => handleSourceChange(source)}
-                          className={`w-full text-left px-2 py-2 text-white hover:bg-white/10 rounded text-sm flex items-center justify-between ${
-                            currentSource?.id === source.id ? 'bg-pink-500/20' : ''
-                          }`}
-                        >
-                          <span>{source.name}</span>
-                          {currentSource?.id === source.id && (
-                            <div className="w-2 h-2 bg-pink-500 rounded-full"></div>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              {/* Enhanced Source Selector */}
+              <SourceSelector
+                isOpen={showSourceMenu}
+                onToggle={() => setShowSourceMenu(!showSourceMenu)}
+                sources={sources}
+                currentSource={currentSource}
+                onSourceChange={handleSourceChange}
+                onRetry={handleRetryLoad}
+              />
 
-              {/* Subtitle Selector */}
-              {subtitleTracks.length > 0 && (
-                <div className="relative">
-                  <button
-                    onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
-                    className="text-white hover:text-pink-400 transition-colors p-2 bg-black/50 rounded-lg"
-                    aria-label="Subtitles"
-                  >
-                    <Subtitles className="w-5 h-5" />
-                  </button>
-                  
-                  {showSubtitleMenu && (
-                    <div className="absolute bottom-full left-0 mb-2 bg-black/90 backdrop-blur-sm rounded-lg border border-white/20 min-w-[200px] overflow-hidden">
-                      <div className="p-2">
-                        <div className="text-white text-sm font-medium mb-2 px-2">Subtitles</div>
-                        
-                        <button
-                          onClick={() => handleSubtitleChange(null)}
-                          className={`w-full text-left px-2 py-2 text-white hover:bg-white/10 rounded text-sm flex items-center justify-between ${
-                            !currentSubtitle ? 'bg-pink-500/20' : ''
-                          }`}
-                        >
-                          <span>Off</span>
-                          {!currentSubtitle && <div className="w-2 h-2 bg-pink-500 rounded-full"></div>}
-                        </button>
-                        
-                        {subtitleTracks.map((track) => (
-                          <button
-                            key={track.id}
-                            onClick={() => handleSubtitleChange(track.id)}
-                            className={`w-full text-left px-2 py-2 text-white hover:bg-white/10 rounded text-sm flex items-center justify-between ${
-                              currentSubtitle === track.id ? 'bg-pink-500/20' : ''
-                            }`}
-                          >
-                            <div className="flex items-center space-x-2">
-                              <img
-                                src={`https://flagsapi.com/${track.country}/flat/24.png`}
-                                alt={`${track.country} flag`}
-                                className="w-4 h-3 rounded-sm"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = 'none';
-                                }}
-                              />
-                              <span>{track.language}</span>
-                            </div>
-                            {currentSubtitle === track.id && (
-                              <div className="w-2 h-2 bg-pink-500 rounded-full"></div>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* Enhanced Subtitle Menu */}
+              <SubtitleMenu
+                isOpen={showSubtitleMenu}
+                onToggle={() => setShowSubtitleMenu(!showSubtitleMenu)}
+                subtitleTracks={subtitleTracks}
+                currentSubtitle={currentSubtitle}
+                onSubtitleChange={handleSubtitleChange}
+              />
             </div>
 
             {/* Right Controls */}
@@ -320,6 +354,7 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
               {/* Anime Audio Toggle */}
               {mediaType === 'anime' && onDubChange && (
                 <div className="flex items-center space-x-2 bg-black/50 rounded-lg p-2">
+                  <span className="text-white text-sm mr-2">Audio:</span>
                   <button
                     onClick={() => onDubChange(false)}
                     className={`px-3 py-1 rounded-md text-sm transition-colors ${
@@ -339,46 +374,23 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
                 </div>
               )}
 
-              {/* Settings */}
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="text-white hover:text-pink-400 transition-colors p-2 bg-black/50 rounded-lg"
-                aria-label="Settings"
-              >
-                <Settings className="w-5 h-5" />
-              </button>
+              {/* Enhanced Settings Menu */}
+              <SettingsMenu
+                isOpen={showSettings}
+                onToggle={() => setShowSettings(!showSettings)}
+                settings={playerSettings}
+                onSettingsChange={setPlayerSettings}
+              />
             </div>
           </div>
         </div>
 
-        {/* Settings Panel */}
-        {showSettings && (
-          <div className="absolute top-20 right-6 bg-black/90 backdrop-blur-sm rounded-lg border border-white/20 p-4 min-w-[250px]">
-            <h3 className="text-white font-semibold mb-3">Player Settings</h3>
-            
-            <div className="space-y-3">
-              <div>
-                <label className="text-white text-sm block mb-1">Video Quality</label>
-                <select className="w-full bg-gray-800 text-white rounded px-3 py-1 text-sm">
-                  <option>Auto</option>
-                  <option>1080p</option>
-                  <option>720p</option>
-                  <option>480p</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="text-white text-sm block mb-1">Playback Speed</label>
-                <select className="w-full bg-gray-800 text-white rounded px-3 py-1 text-sm">
-                  <option value="0.5">0.5x</option>
-                  <option value="0.75">0.75x</option>
-                  <option value="1" selected>1x</option>
-                  <option value="1.25">1.25x</option>
-                  <option value="1.5">1.5x</option>
-                  <option value="2">2x</option>
-                </select>
-              </div>
-            </div>
+        {/* Source Status Indicator */}
+        {currentSource && (
+          <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-1 flex items-center space-x-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span className="text-white text-sm">{currentSource.name}</span>
+            <span className="text-gray-300 text-xs">({currentSource.provider})</span>
           </div>
         )}
       </div>
@@ -393,11 +405,17 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
           title={title}
           referrerPolicy="no-referrer"
+          onError={() => {
+            setSourceError(`Failed to load ${currentSource.name}`);
+          }}
+          onLoad={() => {
+            setSourceError(null);
+          }}
         />
       )}
 
       {/* Subtitle Overlay */}
-      {currentSubtitle && subtitleCues.length > 0 && (
+      {currentSubtitle && subtitleCues.length > 0 && !isDub && (
         <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 pointer-events-none z-20">
           <div className="bg-black/80 text-white px-4 py-2 rounded-lg text-center max-w-md">
             {/* This would need actual video time tracking for real implementation */}
@@ -405,6 +423,20 @@ export const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
               Subtitles: {currentSubtitle}
             </div>
           </div>
+        </div>
+      )}
+      
+      {/* Debug Info (only in development) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="absolute top-20 left-4 bg-black/80 text-white p-2 rounded text-xs max-w-xs">
+          <div>Media: {mediaType}</div>
+          <div>TMDB: {tmdbId || 'N/A'}</div>
+          <div>AniList: {anilistId || 'N/A'}</div>
+          {seasonNumber && <div>Season: {seasonNumber}</div>}
+          {episodeNumber && <div>Episode: {episodeNumber}</div>}
+          <div>Audio: {isDub ? 'Dub' : 'Sub'}</div>
+          <div>Sources: {sources.length}</div>
+          <div>Provider: {currentSource?.provider || 'None'}</div>
         </div>
       )}
     </div>

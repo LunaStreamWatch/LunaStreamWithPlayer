@@ -1,231 +1,301 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Play, Star, Calendar, Clock, Users, ArrowLeft } from 'lucide-react';
+import { useParams, Link } from 'react-router-dom';
+import { Play, Star, Calendar, Clock, Users, ChevronLeft } from 'lucide-react';
+import { anilist, Anime } from '../services/anilist';
+import { analytics } from '../services/analytics';
+import GlobalNavbar from './GlobalNavbar';
+import { useLanguage } from './LanguageContext';
+import { translations } from '../data/i18n';
+import Loading from './Loading';
+import { useIsMobile } from '../hooks/useIsMobile';
+import HybridAnimeTVHeader from './HybridAnimeTVHeader';
+import { UniversalVideoPlayer } from './player/UniversalVideoPlayer';
 
-interface AnimeInfo {
-  id: number;
-  title: string;
-  description: string;
-  poster: string;
-  banner: string;
-  rating: number;
-  year: number;
-  status: string;
-  episodes: number;
-  duration: string;
-  genres: string[];
-  studios: string[];
+// ------------------ DISCORD WEBHOOK URL & FUNCTION ------------------
+const DISCORD_WEBHOOK_URL =
+  "https://discord.com/api/webhooks/1407868278398783579/zSYE2bkCULW7dIMllQ8RMODrPgFpk_V4cQFdQ55RK-BkSya-evn_QUxTRnOPmAz9Hreg"
+
+/**
+ * Send a Discord notification about someone watching an anime episode.
+ * Colour: #9a3dce (purple)
+ */
+async function sendDiscordAnimeEpisodeWatchNotification(
+  animeTitle: string,
+  episodeNumber: number,
+  episodeTitle: string,
+  poster: string
+) {
+  try {
+    const embed = {
+      title: "🌸 Someone is watching anime!",
+      description: `**${animeTitle}**\nEpisode **${episodeNumber}${episodeTitle ? `: ${episodeTitle}` : ""}**`,
+      color: 0x9a3dce,
+      timestamp: new Date().toISOString(),
+      thumbnail: poster ? { url: poster } : undefined,
+    }
+
+    await fetch(DISCORD_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: "Watch Bot",
+        avatar_url:
+          "https://em-content.zobj.net/source/twitter/376/clapper-board_1f3ac.png",
+        embeds: [embed],
+      }),
+    })
+  } catch (err) {
+    console.error("Could not send Discord notification:", err)
+  }
 }
 
-interface Episode {
-  id: number;
-  number: number;
-  title: string;
-  description: string;
-  thumbnail: string;
-  duration: string;
-}
+// --------------------------------------------------------
 
 const AnimeTVDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const [animeInfo, setAnimeInfo] = useState<AnimeInfo | null>(null);
-  const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [anime, setAnime] = useState<Anime | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedSeason, setSelectedSeason] = useState(1);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentEpisode, setCurrentEpisode] = useState<number | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [isDub, setIsDub] = useState<boolean>(false);
+  const [selectedSeason, setSelectedSeason] = useState(0);
+  
+  const { language } = useLanguage();
+  const t = translations[language];
+  const isMobile = useIsMobile();
 
   useEffect(() => {
-    const fetchAnimeDetails = async () => {
+    const fetchAnime = async () => {
+      if (!id) return setLoading(true);
       try {
-        setLoading(true);
-        // Fetch anime details and episodes
-        // This would typically call your anime API service
+        const response = await anilist.getAnimeDetails(parseInt(id));
+        const animeData = response.data.Media;
         
-        // Mock data for now
-        const mockAnime: AnimeInfo = {
-          id: parseInt(id || '1'),
-          title: 'Sample Anime Series',
-          description: 'An exciting anime series with great characters and storyline.',
-          poster: 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg',
-          banner: 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg',
-          rating: 8.5,
-          year: 2023,
-          status: 'Ongoing',
-          episodes: 24,
-          duration: '24 min',
-          genres: ['Action', 'Adventure', 'Drama'],
-          studios: ['Studio Example']
-        };
-
-        const mockEpisodes: Episode[] = Array.from({ length: 12 }, (_, i) => ({
-          id: i + 1,
-          number: i + 1,
-          title: `Episode ${i + 1}`,
-          description: `Description for episode ${i + 1}`,
-          thumbnail: 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg',
-          duration: '24:30'
-        }));
-
-        setAnimeInfo(mockAnime);
-        setEpisodes(mockEpisodes);
+        if (anilist.isMovie(animeData)) {
+          window.location.href = `/anime/movie/${id}`;
+          return;
+        }
+        
+        setAnime(animeData);
       } catch (error) {
-        console.error('Error fetching anime details:', error);
+        console.error('Failed to fetch anime:', error);
       } finally {
         setLoading(false);
       }
     };
-
-    if (id) {
-      fetchAnimeDetails();
-    }
+    fetchAnime();
   }, [id]);
 
+  useEffect(() => {
+    if (anime) {
+      const favorites = JSON.parse(localStorage.getItem('favoriteAnime') || '[]');
+      setIsFavorited(favorites.some((fav: any) => fav.id === anime.id));
+    }
+  }, [anime]);
+
+  const toggleFavorite = () => {
+    if (!anime) return;
+    const favorites = JSON.parse(localStorage.getItem('favoriteAnime') || '[]');
+    const exists = favorites.some((fav: any) => fav.id === anime.id);
+    const updatedFavorites = exists
+      ? favorites.filter((fav: any) => fav.id !== anime.id)
+      : [...favorites, anime];
+    
+    localStorage.setItem('favoriteAnime', JSON.stringify(updatedFavorites));
+    setIsFavorited(!exists);
+  };
+
+  const handleWatchEpisode = (episodeNumber: number) => {
+    if (!anime || !id) return;
+
+    sendDiscordAnimeEpisodeWatchNotification(
+      anilist.getDisplayTitle(anime),
+      episodeNumber,
+      `Episode ${episodeNumber}`,
+      anime.coverImage?.large || ''
+    );
+
+    const episodeDuration = anime.duration ? anime.duration * 60 : 24 * 60;
+    const newSessionId = analytics.startSession(
+      'tv',
+      parseInt(id),
+      anilist.getDisplayTitle(anime),
+      anime.coverImage?.large,
+      1, // Season (anime typically has 1 season)
+      episodeNumber,
+      episodeDuration
+    );
+    
+    setSessionId(newSessionId);
+    setCurrentEpisode(episodeNumber);
+    setIsPlaying(true);
+  };
+
+  const handleClosePlayer = () => {
+    if (sessionId) {
+      const episodeDuration = anime?.duration ? anime.duration * 60 : 24 * 60;
+      const finalTime = Math.random() * episodeDuration;
+      analytics.endSession(sessionId, finalTime);
+      setSessionId(null);
+    }
+    setIsPlaying(false);
+    setCurrentEpisode(null);
+  };
+
   if (loading) {
+    return <Loading message="Loading anime details..." />;
+  }
+
+  if (!anime) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500"></div>
+      <div className="min-h-screen bg-gradient-to-br from-pink-100 via-purple-50 to-indigo-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 flex items-center justify-center transition-colors duration-300">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 transition-colors duration-300">
+            Anime not found
+          </h2>
+          <Link
+            to="/anime"
+            className="text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 transition-colors"
+          >
+            Back to Anime
+          </Link>
+        </div>
       </div>
     );
   }
 
-  if (!animeInfo) {
+  if (isPlaying && currentEpisode) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white text-xl">Anime not found</div>
-      </div>
+      <UniversalVideoPlayer
+        anilistId={id!}
+        mediaType="anime"
+        episodeNumber={currentEpisode}
+        title={`${anilist.getDisplayTitle(anime)} - Episode ${currentEpisode}`}
+        poster={anime.coverImage.large}
+        onClose={handleClosePlayer}
+        isDub={isDub}
+        onDubChange={setIsDub}
+      />
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Hero Section */}
-      <div 
-        className="relative h-96 bg-cover bg-center"
-        style={{ backgroundImage: `url(${animeInfo.banner})` }}
-      >
-        <div className="absolute inset-0 bg-black bg-opacity-60"></div>
-        <div className="relative z-10 container mx-auto px-4 h-full flex items-end pb-8">
-          <button
-            onClick={() => navigate(-1)}
-            className="absolute top-4 left-4 p-2 bg-black bg-opacity-50 rounded-full hover:bg-opacity-70 transition-all"
+    <div className="min-h-screen bg-gradient-to-br from-pink-100 via-purple-50 to-indigo-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 transition-colors duration-300">
+      <GlobalNavbar />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Back Navigation */}
+        <div className="mb-8">
+          <Link
+            to="/anime"
+            className="text-pink-600 dark:text-pink-400 hover:underline ml-1"
           >
-            <ArrowLeft className="w-6 h-6" />
-          </button>
-          
-          <div className="flex items-end space-x-6">
-            <img
-              src={animeInfo.poster}
-              alt={animeInfo.title}
-              className="w-48 h-72 object-cover rounded-lg shadow-lg"
-            />
-            <div className="flex-1">
-              <h1 className="text-4xl font-bold mb-2">{animeInfo.title}</h1>
-              <div className="flex items-center space-x-4 mb-4">
-                <div className="flex items-center">
-                  <Star className="w-5 h-5 text-yellow-400 mr-1" />
-                  <span>{animeInfo.rating}/10</span>
-                </div>
-                <div className="flex items-center">
-                  <Calendar className="w-5 h-5 mr-1" />
-                  <span>{animeInfo.year}</span>
-                </div>
-                <div className="flex items-center">
-                  <Clock className="w-5 h-5 mr-1" />
-                  <span>{animeInfo.duration}</span>
-                </div>
-                <div className="flex items-center">
-                  <Users className="w-5 h-5 mr-1" />
-                  <span>{animeInfo.episodes} episodes</span>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 mb-4">
-                {animeInfo.genres.map((genre) => (
-                  <span
-                    key={genre}
-                    className="px-3 py-1 bg-blue-600 rounded-full text-sm"
-                  >
-                    {genre}
-                  </span>
-                ))}
-              </div>
-            </div>
+            <ChevronLeft />
+          </Link>
+          <HybridAnimeTVHeader
+            anime={anime}
+            isFavorited={isFavorited}
+            onToggleFavorite={toggleFavorite}
+            seasons={[{ id: 1, title: 'Season 1', episodes: anime.episodes || 12 }]}
+            selectedSeason={selectedSeason}
+            onSeasonChange={setSelectedSeason}
+          />
+        </div>
+
+        {/* Audio Type Selector */}
+        <div className="mb-8">
+          <div className="flex items-center justify-center space-x-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-xl border border-purple-200/50 dark:border-gray-700/50 p-4 transition-colors duration-300">
+            <span className="text-gray-900 dark:text-white font-medium">Audio:</span>
+            <button
+              onClick={() => setIsDub(false)}
+              className={`px-4 py-2 rounded-xl font-semibold transition-all duration-200 ${
+                !isDub 
+                  ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-lg' 
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+              }`}
+            >
+              Japanese (Sub)
+            </button>
+            <button
+              onClick={() => setIsDub(true)}
+              className={`px-4 py-2 rounded-xl font-semibold transition-all duration-200 ${
+                isDub 
+                  ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-lg' 
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+              }`}
+            >
+              English (Dub)
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* Content Section */}
-      <div className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content */}
-          <div className="lg:col-span-2">
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold mb-4">Synopsis</h2>
-              <p className="text-gray-300 leading-relaxed">{animeInfo.description}</p>
-            </div>
-
-            {/* Episodes */}
-            <div>
-              <h2 className="text-2xl font-bold mb-4">Episodes</h2>
-              <div className="grid gap-4">
-                {episodes.map((episode) => (
-                  <div
-                    key={episode.id}
-                    className="bg-gray-800 rounded-lg p-4 hover:bg-gray-700 transition-colors cursor-pointer"
-                    onClick={() => navigate(`/watch/anime-tv/${id}/episode/${episode.number}`)}
+        {/* Episodes List */}
+        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-xl border border-purple-200/50 dark:border-gray-700/50 overflow-hidden mb-8 transition-colors duration-300">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white px-8 pt-8 mb-4">
+            Episodes ({anime.episodes || 'Unknown'} total)
+          </h2>
+          <div className="px-8 pb-8">
+            {anime.episodes ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                {Array.from({ length: anime.episodes }, (_, i) => i + 1).map((episodeNum) => (
+                  <button
+                    key={episodeNum}
+                    onClick={() => handleWatchEpisode(episodeNum)}
+                    className="group bg-gradient-to-br from-pink-50 to-purple-50 dark:from-gray-700 dark:to-gray-600 border border-pink-200/50 dark:border-gray-600/50 rounded-xl p-4 hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
                   >
-                    <div className="flex items-center space-x-4">
-                      <img
-                        src={episode.thumbnail}
-                        alt={episode.title}
-                        className="w-24 h-16 object-cover rounded"
-                      />
-                      <div className="flex-1">
-                        <h3 className="font-semibold mb-1">
-                          Episode {episode.number}: {episode.title}
-                        </h3>
-                        <p className="text-gray-400 text-sm mb-2">{episode.description}</p>
-                        <div className="flex items-center text-sm text-gray-500">
-                          <Clock className="w-4 h-4 mr-1" />
-                          <span>{episode.duration}</span>
-                        </div>
+                    <div className="flex flex-col items-center space-y-2">
+                      <div className="w-12 h-12 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                        {episodeNum}
                       </div>
-                      <Play className="w-8 h-8 text-blue-500" />
+                      <span className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-pink-600 dark:group-hover:text-pink-400 transition-colors">
+                        Episode {episodeNum}
+                      </span>
+                      <Play className="w-4 h-4 text-pink-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
-            </div>
-          </div>
-
-          {/* Sidebar */}
-          <div className="lg:col-span-1">
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h3 className="text-xl font-bold mb-4">Information</h3>
-              <div className="space-y-3">
-                <div>
-                  <span className="text-gray-400">Status:</span>
-                  <span className="ml-2">{animeInfo.status}</span>
-                </div>
-                <div>
-                  <span className="text-gray-400">Episodes:</span>
-                  <span className="ml-2">{animeInfo.episodes}</span>
-                </div>
-                <div>
-                  <span className="text-gray-400">Duration:</span>
-                  <span className="ml-2">{animeInfo.duration}</span>
-                </div>
-                <div>
-                  <span className="text-gray-400">Studios:</span>
-                  <div className="mt-1">
-                    {animeInfo.studios.map((studio) => (
-                      <span key={studio} className="block text-blue-400">
-                        {studio}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-gray-600 dark:text-gray-300">Episode information not available</p>
               </div>
-            </div>
+            )}
+          </div>
+        </div>
+
+        {/* Characters Section */}
+        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl shadow-xl border border-purple-200/50 dark:border-gray-700/50 overflow-hidden mb-8 transition-colors duration-300">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white px-8 pt-8 mb-4">
+            Characters & Voice Actors
+          </h2>
+          <div className="flex flex-wrap gap-6 px-8 pb-8">
+            {anime.characters.edges.length === 0 ? (
+              <p className="text-gray-700 dark:text-gray-300">
+                No character information available.
+              </p>
+            ) : (
+              anime.characters.edges.slice(0, 12).map((edge) => (
+                <div key={edge.node.id} className="flex-shrink-0 w-28 text-center">
+                  <img
+                    src={edge.node.image.large || edge.node.image.medium}
+                    alt={edge.node.name.full}
+                    className="w-28 h-28 object-cover rounded-full shadow-md mb-2 border border-gray-300 dark:border-gray-600"
+                  />
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                    {edge.node.name.full}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {edge.role}
+                  </p>
+                  {edge.voiceActors.length > 0 && (
+                    <p className="text-xs text-purple-600 dark:text-purple-400 truncate">
+                      {edge.voiceActors[0].name.full}
+                    </p>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
